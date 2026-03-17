@@ -90,7 +90,8 @@ def generate_audio(client, text, filename):
     # Generate PCM audio bytes utilizing the requested TTS model
     response = client.models.generate_content(
         model='gemini-2.5-flash-preview-tts',
-        contents=text
+        contents=text,
+        config=types.GenerateContentConfig(response_modalities=["AUDIO"])
     )
     
     pcm_data = None
