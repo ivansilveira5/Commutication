@@ -41,8 +41,9 @@ def get_gemini_client():
 def generate_script_and_metadata(client, topics):
     prompt = (
         f"Search the live web for the following topics: {topics}. "
-        f"Generate a daily news podcast. Provide exactly 3 fields in JSON format: "
-        f"'headlines' (array of top 5 article titles), "
+        f"Generate a daily news podcast. You MUST return ONLY valid raw JSON. "
+        f"Do not use markdown formatting, do not use backticks, and do not include any conversational text outside the JSON object. "
+        f"The JSON must have these keys: 'headlines' (array of top 5 article titles), "
         f"'script' (a conversational 10-minute podcast script detailing the news), and "
         f"'audio_filename' (a string formatted exactly as 'news_YYYY-MM-DD.wav' using today's date)."
     )
@@ -51,14 +52,24 @@ def generate_script_and_metadata(client, topics):
         model='gemini-2.5-flash',
         contents=prompt,
         config=types.GenerateContentConfig(
-            response_mime_type="application/json",
             tools=[{"google_search": {}}],
             temperature=0.7
         )
     )
     
     try:
-        content = json.loads(response.text)
+        response_text = response.text.strip()
+        # Safely strip any markdown code blocks if the LLM still returns them
+        if response_text.startswith("```"):
+            response_text = response_text.split("\n", 1)[-1]
+        if response_text.startswith("json\n"):
+             response_text = response_text.split("\n", 1)[-1]
+        if response_text.endswith("```"):
+             response_text = response_text.rsplit("\n", 1)[0]
+             
+        response_text = response_text.strip()
+        
+        content = json.loads(response_text)
         
         # Ensure correct extension fallback in case LLM generates a different one
         filename = content.get("audio_filename", f"news_{datetime.now().strftime('%Y-%m-%d')}.wav")
@@ -70,6 +81,7 @@ def generate_script_and_metadata(client, topics):
         content["audio_filename"] = filename
         return content
     except json.JSONDecodeError as e:
+        print(f"Failed to parse JSON string: {response.text}")
         raise ValueError("Failed to parse JSON from Gemini") from e
 
 def generate_audio(client, text, filename):
