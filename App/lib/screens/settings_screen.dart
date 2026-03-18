@@ -14,6 +14,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _topicsController = TextEditingController();
+  List<String> _topics = [];
+  bool _recommendExtra = true;
   TimeOfDay? _selectedTime;
   double _targetDuration = 10.0;
   bool _isLoading = false;
@@ -31,7 +33,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (doc.exists) {
         if (mounted) {
           setState(() {
-            _topicsController.text = doc.data()?['topics'] ?? '';
+            final topicsData = doc.data()?['topics'];
+            if (topicsData is List) {
+              _topics = List<String>.from(topicsData);
+            } else if (topicsData is String && topicsData.isNotEmpty) {
+              _topics = topicsData.split(',').map((e) => e.trim()).toList();
+            } else {
+              _topics = [];
+            }
+            
+            _recommendExtra = doc.data()?['recommend_extra'] ?? true;
             _targetDuration = (doc.data()?['target_duration_minutes'] ?? 10.0).toDouble();
           });
         }
@@ -45,7 +56,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isLoading = true);
     try {
       await FirebaseFirestore.instance.doc('settings/user_preferences').set({
-        'topics': _topicsController.text,
+        'topics': _topics,
+        'recommend_extra': _recommendExtra,
         'target_duration_minutes': _targetDuration,
       }, SetOptions(merge: true));
 
@@ -119,13 +131,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const Text('Your Interests', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
+            Wrap(
+              spacing: 8.0,
+              runSpacing: 4.0,
+              children: _topics.map((topic) {
+                return Chip(
+                  label: Text(topic),
+                  onDeleted: () {
+                    setState(() {
+                      _topics.remove(topic);
+                    });
+                  },
+                );
+              }).toList(),
+            ),
             TextField(
               controller: _topicsController,
               decoration: const InputDecoration(
-                hintText: 'e.g. Technology, AI, Startups',
-                border: OutlineInputBorder(),
+                hintText: 'Type an interest and press comma or enter',
               ),
-              maxLines: 3,
+              onChanged: (value) {
+                if (value.endsWith(',')) {
+                  final newTopic = value.substring(0, value.length - 1).trim();
+                  if (newTopic.isNotEmpty && !_topics.contains(newTopic)) {
+                    setState(() {
+                      _topics.add(newTopic);
+                    });
+                  }
+                  _topicsController.clear();
+                }
+              },
+              onSubmitted: (value) {
+                final newTopic = value.trim();
+                if (newTopic.isNotEmpty && !_topics.contains(newTopic)) {
+                  setState(() {
+                    _topics.add(newTopic);
+                  });
+                }
+                _topicsController.clear();
+              },
+            ),
+            CheckboxListTile(
+              title: const Text('Accept recommended topics'),
+              subtitle: const Text('AI will find extra news to fill time if needed'),
+              value: _recommendExtra,
+              onChanged: (bool? value) {
+                setState(() {
+                  _recommendExtra = value ?? true;
+                });
+              },
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
             ),
             const SizedBox(height: 24),
             Row(

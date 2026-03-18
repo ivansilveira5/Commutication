@@ -26,14 +26,22 @@ def get_preferences():
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict()
-            topics = data.get('topics', 'Technology, World News, Science')
+            topics_data = data.get('topics', ['Technology', 'World News', 'Science'])
+            if isinstance(topics_data, str):
+                topics = [t.strip() for t in topics_data.split(',') if t.strip()]
+            else:
+                topics = topics_data
+            if not topics:
+                topics = ['Technology', 'World News', 'Science']
+                
             duration = data.get('target_duration_minutes', 10.0)
-            return topics, int(duration)
+            recommend_extra = data.get('recommend_extra', True)
+            return topics, int(duration), recommend_extra
         else:
-            return 'Technology, World News, Science', 10
+            return ['Technology', 'World News', 'Science'], 10, True
     except Exception as e:
         print(f"Error fetching preferences: {e}")
-        return 'Technology, World News, Science', 10
+        return ['Technology', 'World News', 'Science'], 10, True
 
 def get_gemini_client():
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -41,14 +49,31 @@ def get_gemini_client():
         raise ValueError("GEMINI_API_KEY not set")
     return genai.Client(api_key=api_key)
 
-def generate_script_and_metadata(client, topics, duration_minutes):
+def generate_script_and_metadata(client, topics, duration_minutes, recommend_extra):
     # Average conversational speaking rate is ~150 words per minute
     target_words = duration_minutes * 150
+    topics_str = ", ".join(topics) if isinstance(topics, list) else topics
     
     prompt = (
-        f"Search the live web for the following topics: {topics}. "
-        f"Generate a highly conversational, engaging podcast transcript between two hosts named 'Alex' and 'Sam'. "
-        f"The script MUST be exactly structured for a {duration_minutes}-minute audio playback. To achieve this, you MUST generate approximately {target_words} words. Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
+        f"Generate a highly conversational, engaging podcast transcript between two hosts named 'Alex' and 'Sam'.\n\n"
+        f"CORE DIRECTIVES:\n"
+        f"1. TIME LIMIT: The script MUST be exactly structured for a {duration_minutes}-minute audio playback. To achieve this, you MUST generate approximately {target_words} words.\n"
+        f"2. PRIMARY INTERESTS: The user's requested topics are: {topics_str}.\n"
+        f"3. FILTERING: You must review all gathered information, assess its relative importance, and filter out minor stories. Select only the most impactful news so that the resulting script perfectly fits the word count WITHOUT feeling rushed.\n"
+    )
+    
+    if recommend_extra:
+        prompt += (
+            f"4. DYNAMIC PADDING & GLOBAL NEWS: The user has enabled 'Recommended Topics'. You MUST independently identify and include the most critical, absolute highest-priority global news headlines of the day across any domain, even if they fall outside the user's explicit interests. Furthermore, if the primary interests do not provide enough compelling material to naturally fill the {duration_minutes} minutes, you must aggressively find and integrate extra, highly engaging global topics.\n"
+        )
+    else:
+        prompt += (
+            f"4. STRICT TOPIC COMPLIANCE: The user has disabled 'Recommended Topics'. You MUST strictly confine your discussion ONLY to the user's explicitly stated interests. Do not introduce outside topics. Dive as deep as necessary into these specific topics to naturally expand and fill the {duration_minutes} minutes.\n"
+        )
+
+    prompt += (
+        f"\nFORMATTING RULES:\n"
+        f"Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
         f"They should banter, ask each other questions, and react to the news. "
         f"Every single spoken line MUST begin with the speaker's name and a colon (e.g., 'Alex: [text]' or 'Sam: [text]'). "
         f"IMPORTANT: You MUST return ONLY valid raw JSON. All JSON keys (e.g. \"headlines\", \"script\") and string array elements MUST be properly enclosed in double quotes (\"). "
@@ -260,14 +285,14 @@ def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     init_firebase()
-    topics, duration_minutes = get_preferences()
-    print(f"Preferences retrieved: {topics} ({duration_minutes} minutes)")
+    topics, duration_minutes, recommend_extra = get_preferences()
+    print(f"Preferences retrieved: {topics} ({duration_minutes} mins, Recommended: {recommend_extra})")
     
     client = get_gemini_client()
     
     # 1. AI Generation
     print("Generating script...")
-    podcast_data = generate_script_and_metadata(client, topics, duration_minutes)
+    podcast_data = generate_script_and_metadata(client, topics, duration_minutes, recommend_extra)
     print(f"Generated metadata topics array count limits met.")
     
     # 2. Audio Generation
