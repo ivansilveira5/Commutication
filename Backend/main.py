@@ -19,19 +19,21 @@ def init_firebase():
     else:
         print("Warning: FIREBASE_CREDENTIALS not found in environment.")
 
-def get_topics():
+def get_preferences():
     try:
         db = firestore.client()
         doc_ref = db.collection('settings').document('user_preferences')
         doc = doc_ref.get()
         if doc.exists:
             data = doc.to_dict()
-            return data.get('topics', 'Technology, World News, Science')
+            topics = data.get('topics', 'Technology, World News, Science')
+            duration = data.get('target_duration_minutes', 10.0)
+            return topics, int(duration)
         else:
-            return 'Technology, World News, Science'
+            return 'Technology, World News, Science', 10
     except Exception as e:
-        print(f"Error fetching topics: {e}")
-        return 'Technology, World News, Science'
+        print(f"Error fetching preferences: {e}")
+        return 'Technology, World News, Science', 10
 
 def get_gemini_client():
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -39,11 +41,14 @@ def get_gemini_client():
         raise ValueError("GEMINI_API_KEY not set")
     return genai.Client(api_key=api_key)
 
-def generate_script_and_metadata(client, topics):
+def generate_script_and_metadata(client, topics, duration_minutes):
+    # Average conversational speaking rate is ~150 words per minute
+    target_words = duration_minutes * 150
+    
     prompt = (
         f"Search the live web for the following topics: {topics}. "
         f"Generate a highly conversational, engaging podcast transcript between two hosts named 'Alex' and 'Sam'. "
-        f"The script MUST be a minimum of 2,000 words. Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
+        f"The script MUST be exactly structured for a {duration_minutes}-minute audio playback. To achieve this, you MUST generate approximately {target_words} words. Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
         f"They should banter, ask each other questions, and react to the news. "
         f"Every single spoken line MUST begin with the speaker's name and a colon (e.g., 'Alex: [text]' or 'Sam: [text]'). "
         f"IMPORTANT: You MUST return ONLY valid raw JSON. All JSON keys (e.g. \"headlines\", \"script\") and string array elements MUST be properly enclosed in double quotes (\"). "
@@ -255,14 +260,14 @@ def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     init_firebase()
-    topics = get_topics()
-    print(f"Topics retrieved: {topics}")
+    topics, duration_minutes = get_preferences()
+    print(f"Preferences retrieved: {topics} ({duration_minutes} minutes)")
     
     client = get_gemini_client()
     
     # 1. AI Generation
     print("Generating script...")
-    podcast_data = generate_script_and_metadata(client, topics)
+    podcast_data = generate_script_and_metadata(client, topics, duration_minutes)
     print(f"Generated metadata topics array count limits met.")
     
     # 2. Audio Generation
