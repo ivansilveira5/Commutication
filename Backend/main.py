@@ -45,12 +45,12 @@ def generate_script_and_metadata(client, topics):
         f"The script MUST be a minimum of 2,000 words. Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
         f"They should banter, ask each other questions, and react to the news. "
         f"Every single spoken line MUST begin with the speaker's name and a colon (e.g., 'Alex: [text]' or 'Sam: [text]'). "
-        f"IMPORTANT: You MUST return ONLY valid raw JSON without markdown backticks. "
-        f"CRITICAL: To prevent JSON parsing errors, you MUST NOT use any double quotes (\") inside the 'script' string! Use single quotes (') instead! "
+        f"IMPORTANT: You MUST return ONLY valid raw JSON. All JSON keys (e.g. \"headlines\", \"script\") and string array elements MUST be properly enclosed in double quotes (\"). "
+        f"CRITICAL RULE FOR SCRIPT TEXT: Inside the massive text dialogue of the 'script' string, you MUST NEVER use any double quotes (\"). If you need to quote something spoken by the hosts, use single quotes (')! "
         f"The JSON must have exactly these keys: "
-        f"'headlines' (array of top 5 article titles), "
-        f"'script' (the entire podcast transcript), and "
-        f"'audio_filename' (a string formatted exactly as 'news_YYYY-MM-DD.wav' using today's date)."
+        f"\"headlines\" (array of top 5 article titles), "
+        f"\"script\" (the entire podcast transcript, with absolutely no internal double quotes), and "
+        f"\"audio_filename\" (a string formatted exactly as 'news_YYYY-MM-DD.wav' using today's date)."
     )
     
     response = client.models.generate_content(
@@ -74,8 +74,17 @@ def generate_script_and_metadata(client, topics):
              
         response_text = response_text.strip()
         
-        content = json.loads(response_text)
-        
+        try:
+            content = json.loads(response_text)
+        except json.JSONDecodeError as parse_error:
+            try:
+                # LLM might have used single quotes for JSON keys, so fallback to ast.literal_eval
+                import ast
+                sanitized = response_text.replace("true", "True").replace("false", "False").replace("null", "None")
+                content = ast.literal_eval(sanitized)
+            except Exception:
+                print(f"Failed to parse JSON string: {response.text}")
+                raise ValueError("Failed to parse JSON from Gemini") from parse_error
         # Ensure correct extension fallback in case LLM generates a different one
         filename = content.get("audio_filename", f"news_{datetime.now().strftime('%Y-%m-%d')}.wav")
         if filename.endswith(".mp3"):
@@ -85,7 +94,7 @@ def generate_script_and_metadata(client, topics):
             
         content["audio_filename"] = filename
         return content
-    except json.JSONDecodeError as e:
+    except Exception as e:
         print(f"Failed to parse JSON string: {response.text}")
         raise ValueError("Failed to parse JSON from Gemini") from e
 
