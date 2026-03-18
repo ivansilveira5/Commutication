@@ -116,7 +116,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final topics = topicsRaw is List 
         ? topicsRaw.map((e) => e.toString()).join(', ') 
         : (topicsRaw?.toString() ?? 'No topics');
-    final headlines = List<String>.from(_metadata?['headlines'] ?? []);
+        
+    final headlinesData = _metadata?['headlines'] as List<dynamic>? ?? [];
+    final headlines = headlinesData.map((e) {
+      if (e is String) return {'title': e, 'timestamp_seconds': 0};
+      if (e is Map) {
+        return {
+          'title': e['title']?.toString() ?? 'Unknown',
+          'timestamp_seconds': (e['timestamp_seconds'] as num?)?.toInt() ?? 0,
+        };
+      }
+      return {'title': 'Unknown', 'timestamp_seconds': 0};
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Commutication'), centerTitle: true),
@@ -147,31 +158,56 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              itemCount: headlines.length,
-              itemBuilder: (context, index) {
-                return ListTile(
-                  leading: const Icon(Icons.article),
-                  title: Text(headlines[index]),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.troubleshoot),
-                    tooltip: 'Deep Dive Tomorrow',
-                    onPressed: () async {
-                      try {
-                        await FirebaseFirestore.instance.doc('settings/user_preferences').set(
-                          {'deep_dive_topic': headlines[index]},
-                          SetOptions(merge: true)
-                        );
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Deep Dive scheduled for tomorrow!')),
-                          );
-                        }
-                      } catch (e) {
-                         debugPrint('Deep dive error: $e');
-                      }
-                    },
-                  ),
+            child: StreamBuilder<Duration>(
+              stream: _player.positionStream,
+              builder: (context, snapshot) {
+                final currentSeconds = snapshot.data?.inSeconds ?? 0;
+                int activeIndex = 0;
+                for (int i = 0; i < headlines.length; i++) {
+                  if (currentSeconds >= (headlines[i]['timestamp_seconds'] as int)) {
+                    activeIndex = i;
+                  }
+                }
+
+                return ListView.builder(
+                  itemCount: headlines.length,
+                  itemBuilder: (context, index) {
+                    final headline = headlines[index];
+                    final isActive = index == activeIndex;
+                    
+                    return ListTile(
+                      leading: Icon(
+                        isActive ? Icons.volume_up : Icons.article,
+                        color: isActive ? Theme.of(context).colorScheme.primary : null,
+                      ),
+                      title: Text(
+                        headline['title'] as String,
+                        style: TextStyle(
+                          fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                          color: isActive ? Theme.of(context).colorScheme.primary : null,
+                        ),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.troubleshoot),
+                        tooltip: 'Deep Dive Tomorrow',
+                        onPressed: () async {
+                          try {
+                            await FirebaseFirestore.instance.doc('settings/user_preferences').set(
+                              {'deep_dive_topic': headline['title']},
+                              SetOptions(merge: true)
+                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Deep Dive scheduled for tomorrow!')),
+                              );
+                            }
+                          } catch (e) {
+                             debugPrint('Deep dive error: $e');
+                          }
+                        },
+                      ),
+                    );
+                  },
                 );
               },
             ),

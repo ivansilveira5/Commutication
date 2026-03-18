@@ -128,7 +128,7 @@ def generate_script_and_metadata(client, topics, duration_minutes, recommend_ext
         f"IMPORTANT: You MUST return ONLY valid raw JSON. All JSON keys (e.g. \"headlines\", \"script\") and string array elements MUST be properly enclosed in double quotes (\"). "
         f"CRITICAL RULE FOR SCRIPT TEXT: Inside the massive text dialogue of the 'script' string, you MUST NEVER use any double quotes (\"). If you need to quote something spoken by the hosts, use single quotes (')! "
         f"The JSON must have exactly these keys: "
-        f"\"headlines\" (array of top 5 article titles), "
+        f"\"headlines\" (an array of objects containing exact keys: 'title' (string) and 'timestamp_seconds' (integer). You must intelligently estimate the timestamp_seconds based on where the topic starts in the script, assuming a speaking rate of 150 words per minute. E.g., if a topic starts 300 words into the script, its timestamp is 120.), "
         f"\"script\" (the entire podcast transcript, with absolutely no internal double quotes), and "
         f"\"audio_filename\" (a string formatted exactly as 'news_YYYY-MM-DD.mp3' using today's date)."
     )
