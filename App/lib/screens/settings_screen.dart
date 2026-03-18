@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart'; 
 
 class SettingsScreen extends StatefulWidget {
@@ -30,7 +31,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadPreferences() async {
     try {
-      final doc = await FirebaseFirestore.instance.doc('settings/user_preferences').get();
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('userId') ?? 'Default';
+      final path = userId == 'Default' ? 'settings/user_preferences' : 'settings/user_preferences_$userId';
+      final doc = await FirebaseFirestore.instance.doc(path).get();
       if (doc.exists) {
         if (mounted) {
           setState(() {
@@ -57,7 +61,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _savePreferences() async {
     setState(() => _isLoading = true);
     try {
-      await FirebaseFirestore.instance.doc('settings/user_preferences').set({
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('userId') ?? 'Default';
+      final path = userId == 'Default' ? 'settings/user_preferences' : 'settings/user_preferences_$userId';
+      
+      await FirebaseFirestore.instance.doc(path).set({
         'topics': _topics,
         'recommend_extra': _recommendExtra,
         'podcast_vibe': _podcastVibe,

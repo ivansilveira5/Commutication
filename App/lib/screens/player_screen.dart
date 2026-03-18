@@ -21,7 +21,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isLoading = true;
   String? _error;
 
-  final String metadataUrl = 'https://raw.githubusercontent.com/ivansilveira5/Commutication/main/Backend/latest_metadata.json';
+  String? metadataUrl;
   final String audioBaseUrl = 'https://raw.githubusercontent.com/ivansilveira5/Commutication/main/Backend/';
 
   @override
@@ -32,7 +32,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _initApp() async {
     try {
-      final response = await http.get(Uri.parse(metadataUrl));
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getString('userId') ?? 'Default';
+      final filename = userId == 'Default' ? 'latest_metadata.json' : 'metadata_$userId.json';
+      metadataUrl = 'https://raw.githubusercontent.com/ivansilveira5/Commutication/main/Backend/$filename';
+
+      final response = await http.get(Uri.parse(metadataUrl!));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         setState(() {
@@ -192,7 +197,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         tooltip: 'Deep Dive Tomorrow',
                         onPressed: () async {
                           try {
-                            await FirebaseFirestore.instance.doc('settings/user_preferences').set(
+                            final prefs = await SharedPreferences.getInstance();
+                            final userId = prefs.getString('userId') ?? 'Default';
+                            final path = userId == 'Default' ? 'settings/user_preferences' : 'settings/user_preferences_$userId';
+                            
+                            await FirebaseFirestore.instance.doc(path).set(
                               {'deep_dive_topic': headline['title']},
                               SetOptions(merge: true)
                             );

@@ -20,12 +20,18 @@ def init_firebase():
     else:
         print("Warning: FIREBASE_CREDENTIALS not found in environment.")
 
-def get_preferences():
+def get_all_user_preferences():
     try:
         db = firestore.client()
-        doc_ref = db.collection('settings').document('user_preferences')
-        doc = doc_ref.get()
-        if doc.exists:
+        docs = db.collection('settings').stream()
+        
+        all_prefs = []
+        for doc in docs:
+            doc_id = doc.id
+            if not doc_id.startswith('user_preferences_'):
+                continue
+                
+            userId = doc_id.replace('user_preferences_', '')
             data = doc.to_dict()
             topics_data = data.get('topics', ['Technology', 'World News', 'Science'])
             if isinstance(topics_data, str):
@@ -42,14 +48,21 @@ def get_preferences():
             
             # Consume the deep dive flag so it only runs once
             if deep_dive_topic:
-                doc_ref.update({'deep_dive_topic': firestore.DELETE_FIELD})
+                db.collection('settings').document(doc_id).update({'deep_dive_topic': firestore.DELETE_FIELD})
                 
-            return topics, int(duration), recommend_extra, podcast_vibe, deep_dive_topic
-        else:
-            return ['Technology', 'World News', 'Science'], 10, True, 'Banter', None
+            all_prefs.append({
+                'userId': userId,
+                'topics': topics,
+                'duration_minutes': int(duration),
+                'recommend_extra': recommend_extra,
+                'podcast_vibe': podcast_vibe,
+                'deep_dive_topic': deep_dive_topic
+            })
+            
+        return all_prefs
     except Exception as e:
         print(f"Error fetching preferences: {e}")
-        return ['Technology', 'World News', 'Science'], 10, True, 'Banter', None
+        return []
 
 def get_gemini_client():
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -325,33 +338,52 @@ def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     init_firebase()
-    topics, duration_minutes, recommend_extra, podcast_vibe, deep_dive_topic = get_preferences()
-    print(f"Preferences retrieved: {topics} ({duration_minutes} mins, Recommended: {recommend_extra}, Vibe: {podcast_vibe}, Deep Dive: {deep_dive_topic})")
+    all_prefs = get_all_user_preferences()
     
+    if not all_prefs:
+        print("No user profiles found. Exiting.")
+        return
+        
     client = get_gemini_client()
     
-    # 1. AI Generation
-    print("Generating script...")
-    podcast_data = generate_script_and_metadata(client, topics, duration_minutes, recommend_extra, podcast_vibe, deep_dive_topic)
-    print(f"Generated metadata topics array count limits met.")
-    
-    # 2. Audio Generation
-    script_text = podcast_data.get("script", "")
-    audio_filename = podcast_data.get("audio_filename")
-    
-    if script_text and audio_filename:
-        generate_audio(client, script_text, audio_filename, podcast_vibe)
-    else:
-        print("Warning: Skipping audio generation due to missing script text or filename.")
-    
-    # 3. Storage
-    print("Saving latest_metadata.json...")
-    podcast_data['topics'] = topics
-    with open("latest_metadata.json", "w", encoding="utf-8") as f:
-        json.dump(podcast_data, f, indent=4)
+    for user_pref in all_prefs:
+        userId = user_pref['userId']
+        topics = user_pref['topics']
+        duration_minutes = user_pref['duration_minutes']
+        recommend_extra = user_pref['recommend_extra']
+        podcast_vibe = user_pref['podcast_vibe']
+        deep_dive_topic = user_pref['deep_dive_topic']
         
-    # 4. Cleanup
-    print("Cleaning up old .wav files...")
+        print(f"\n--- Generating podcast for user: {userId} ---")
+        print(f"Preferences: {topics} ({duration_minutes} mins, Recommended: {recommend_extra}, Vibe: {podcast_vibe}, Deep Dive: {deep_dive_topic})")
+        
+        try:
+            print("Generating script...")
+            podcast_data = generate_script_and_metadata(client, topics, duration_minutes, recommend_extra, podcast_vibe, deep_dive_topic)
+            
+            script_text = podcast_data.get("script", "")
+            original_filename = podcast_data.get("audio_filename", f"news_{datetime.now().strftime('%Y-%m-%d')}.mp3")
+            
+            # Inject userId into the filename!
+            base_name = original_filename.replace('.mp3', '').replace('.wav', '')
+            user_audio_filename = f"{base_name}_{userId}.mp3"
+            podcast_data["audio_filename"] = user_audio_filename
+            
+            if script_text:
+                generate_audio(client, script_text, user_audio_filename, podcast_vibe)
+            else:
+                print(f"Warning: Skipping audio generation for {userId} due to missing script text.")
+            
+            print(f"Saving metadata_{userId}.json...")
+            podcast_data['topics'] = topics
+            with open(f"metadata_{userId}.json", "w", encoding="utf-8") as f:
+                json.dump(podcast_data, f, indent=4)
+                
+        except Exception as e:
+            print(f"Error processing user {userId}: {e}")
+            
+    # Cleanup
+    print("\nCleaning up old .mp3 files...")
     cleanup_old_files()
     print("Run completed successfully.")
     

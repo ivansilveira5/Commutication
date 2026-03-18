@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/player_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/login_screen.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -26,11 +28,15 @@ void main() async {
       InitializationSettings(android: initializationSettingsAndroid);
   await flutterLocalNotificationsPlugin.initialize(settings: initializationSettings);
 
-  runApp(const MyApp());
+  final prefs = await SharedPreferences.getInstance();
+  final userId = prefs.getString('userId');
+
+  runApp(MyApp(initialUserId: userId));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final String? initialUserId;
+  const MyApp({super.key, this.initialUserId});
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +49,7 @@ class MyApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const MainScreen(),
+      home: initialUserId == null ? const LoginScreen() : const MainScreen(),
     );
   }
 }
