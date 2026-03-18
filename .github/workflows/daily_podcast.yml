@@ -2,7 +2,7 @@ name: Daily Podcast Generator
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Run at 8:00 AM UTC daily
+    - cron: '30 9 * * *' # Run at 9:30 AM UTC daily (6:30 AM GMT-3)
   workflow_dispatch: # Allow manual trigger
 
 jobs:

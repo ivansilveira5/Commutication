@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "527581179970",
+    "project_id": "commutication-c5d8e",
+    "storage_bucket": "commutication-c5d8e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:527581179970:android:2be8174a0f8216eee2bddb",
+        "android_client_info": {
+          "package_name": "com.ivansilveira.commutication"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAJRK_Eo1KDr1Ccln2kEnmugH7e8WkItN8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
