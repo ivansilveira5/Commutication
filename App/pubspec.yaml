@@ -41,6 +41,7 @@ dependencies:
   just_audio_background: ^0.0.1-beta.17
   http: ^1.6.0
   timezone: ^0.11.0
+  rxdart: ^0.28.0
 
 dev_dependencies:
   flutter_test:

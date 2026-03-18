@@ -1,7 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
+import 'package:rxdart/rxdart.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -11,134 +13,205 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final AudioPlayer _player = AudioPlayer();
   Map<String, dynamic>? _metadata;
   bool _isLoading = true;
+  String? _error;
+
+  final String metadataUrl = 'https://raw.githubusercontent.com/ivansilveira5/Commutication/main/Backend/latest_metadata.json';
+  final String audioBaseUrl = 'https://raw.githubusercontent.com/ivansilveira5/Commutication/main/Backend/';
 
   @override
   void initState() {
     super.initState();
-    _fetchMetadata();
+    _initApp();
   }
 
-  // NOTE: Ensure your backend GitHub raw URL is inserted here.
-  final String _metadataUrl = 'https://raw.githubusercontent.com/ivansilveira5/Commutication/main/Backend/latest_metadata.json';
-  // Note: the backend url would typically host the audio file too.
-  
-  Future<void> _fetchMetadata() async {
+  Future<void> _initApp() async {
     try {
-      final response = await http.get(Uri.parse(_metadataUrl));
+      final response = await http.get(Uri.parse(metadataUrl));
       if (response.statusCode == 200) {
+        final data = json.decode(response.body);
         setState(() {
-          _metadata = jsonDecode(response.body);
+          _metadata = data;
           _isLoading = false;
         });
-        _setupAudioPlayer();
+        _setupAudioPlayer(data['audio_filename']);
       } else {
-        setState(() => _isLoading = false);
+        throw Exception('Failed to load metadata');
       }
     } catch (e) {
-      debugPrint("Failed to fetch metadata: $e");
-      setState(() => _isLoading = false);
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
     }
   }
 
-  Future<void> _setupAudioPlayer() async {
-    if (_metadata == null || !_metadata!.containsKey('audio_filename')) return;
-    
-    // As per previous plan, assuming audio is hosted online. Wait, you'll need the actual audio URL.
-    // E.g., https://raw.githubusercontent.com/.../audio.mp3
-    final audioFileName = _metadata!['audio_filename'];
-    final audioUrl = 'https://raw.githubusercontent.com/ivansilveira5/Commutication/main/Backend/$audioFileName';
-    
+  Future<void> _setupAudioPlayer(String? filename) async {
+    if (filename == null) return;
     try {
-      await _audioPlayer.setUrl(audioUrl);
+      final url = audioBaseUrl + filename;
+      await _player.setAudioSource(
+        AudioSource.uri(
+          Uri.parse(url),
+          tag: MediaItem(
+            id: '1',
+            album: 'Commutication Daily',
+            title: 'Your Daily Podcast',
+          ),
+        ),
+      );
     } catch (e) {
       debugPrint("Error loading audio: $e");
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_metadata == null) {
-      return const Scaffold(
-        body: Center(child: Text('No metadata found for today.')),
-      );
-    }
-
-    final headlines = _metadata!['headlines'] as List<dynamic>? ?? [];
-
-    return Scaffold(
-        appBar: AppBar(
-          title: const Text('Daily Podcast'),
-        ),
-        body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(
-                'Topics covered: ${_metadata!['topics'] ?? 'N/A'}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                itemCount: headlines.length,
-                itemBuilder: (context, index) {
-                  return ListTile(
-                    leading: const Icon(Icons.article),
-                    title: Text(headlines[index].toString()),
-                  );
-                },
-              ),
-            ),
-            _buildPlayerControls(),
-          ],
-        ));
+  void dispose() {
+    _player.dispose();
+    super.dispose();
   }
 
-  Widget _buildPlayerControls() {
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    if (_error != null) {
+      return Scaffold(body: Center(child: Text('Error: $_error')));
+    }
+
+    final topics = _metadata?['topics'] ?? 'No topics';
+    final headlines = List<String>.from(_metadata?['headlines'] ?? []);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Commutication'), centerTitle: true),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Card(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Today\'s Focus', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 8),
+                    Text(topics, style: Theme.of(context).textTheme.bodyMedium),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Headlines', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              itemCount: headlines.length,
+              itemBuilder: (context, index) {
+                return ListTile(
+                  leading: const Icon(Icons.article),
+                  title: Text(headlines[index]),
+                );
+              },
+            ),
+          ),
+          _buildPlayer(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlayer() {
     return Container(
       padding: const EdgeInsets.all(24.0),
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          StreamBuilder<PositionData>(
+            stream: _positionDataStream,
+            builder: (context, snapshot) {
+              final positionData = snapshot.data;
+              return Slider(
+                value: positionData?.position.inMilliseconds.toDouble() ?? 0.0,
+                max: positionData?.duration.inMilliseconds.toDouble() ?? 100.0,
+                onChanged: (value) {
+                  _player.seek(Duration(milliseconds: value.round()));
+                },
+              );
+            },
+          ),
           StreamBuilder<PlayerState>(
-            stream: _audioPlayer.playerStateStream,
+            stream: _player.playerStateStream,
             builder: (context, snapshot) {
               final playerState = snapshot.data;
               final processingState = playerState?.processingState;
               final playing = playerState?.playing;
-
+              
+              Widget playPauseButton;
               if (processingState == ProcessingState.loading ||
                   processingState == ProcessingState.buffering) {
-                return const CircularProgressIndicator();
+                playPauseButton = Container(
+                  margin: const EdgeInsets.all(8.0),
+                  width: 64.0,
+                  height: 64.0,
+                  child: const CircularProgressIndicator(),
+                );
               } else if (playing != true) {
-                return IconButton(
+                playPauseButton = IconButton(
                   icon: const Icon(Icons.play_arrow),
                   iconSize: 64.0,
-                  onPressed: _audioPlayer.play,
+                  onPressed: _player.play,
                 );
               } else if (processingState != ProcessingState.completed) {
-                return IconButton(
+                playPauseButton = IconButton(
                   icon: const Icon(Icons.pause),
                   iconSize: 64.0,
-                  onPressed: _audioPlayer.pause,
+                  onPressed: _player.pause,
                 );
               } else {
-                return IconButton(
+                playPauseButton = IconButton(
                   icon: const Icon(Icons.replay),
                   iconSize: 64.0,
-                  onPressed: () => _audioPlayer.seek(Duration.zero),
+                  onPressed: () => _player.seek(Duration.zero),
                 );
               }
+
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.replay_5),
+                    iconSize: 48.0,
+                    onPressed: () {
+                      final currentPosition = _player.position;
+                      _player.seek(currentPosition - const Duration(seconds: 5));
+                    },
+                  ),
+                  playPauseButton,
+                  IconButton(
+                    icon: const Icon(Icons.forward_5),
+                    iconSize: 48.0,
+                    onPressed: () {
+                      final currentPosition = _player.position;
+                      _player.seek(currentPosition + const Duration(seconds: 5));
+                    },
+                  ),
+                ],
+              );
             },
           ),
         ],
@@ -146,9 +219,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
-  }
+  Stream<PositionData> get _positionDataStream =>
+      Rx.combineLatest2<Duration, Duration?, PositionData>(
+          _player.positionStream,
+          _player.durationStream,
+          (position, duration) => PositionData(position, duration ?? Duration.zero));
+}
+
+class PositionData {
+  final Duration position;
+  final Duration duration;
+  PositionData(this.position, this.duration);
 }

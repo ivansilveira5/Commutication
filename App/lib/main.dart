@@ -1,27 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:just_audio_background/just_audio_background.dart';
-import 'package:app/screens/settings_screen.dart';
-import 'package:app/screens/player_screen.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'screens/player_screen.dart';
+import 'screens/settings_screen.dart';
 
-Future<void> main() async {
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize Firebase
-  // Note: This requires google-services.json (Android) to be present, or explicit FirebaseOptions
-  // Assuming the user has or will configure it via flutterfire configure
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint("Firebase initialization failed: $e\nEnsure flutterfire configure has been run.");
-  }
-
-  // Initialize just_audio_background
+  await Firebase.initializeApp();
+  
   await JustAudioBackground.init(
-    androidNotificationChannelId: 'com.ryanheise.bg_demo.channel.audio',
+    androidNotificationChannelId: 'com.ivansilveira.commutication.channel.audio',
     androidNotificationChannelName: 'Audio playback',
     androidNotificationOngoing: true,
+    androidNotificationIcon: 'drawable/ic_notification',
   );
+
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  const InitializationSettings initializationSettings =
+      InitializationSettings(android: initializationSettingsAndroid);
+  await flutterLocalNotificationsPlugin.initialize(settings: initializationSettings);
 
   runApp(const MyApp());
 }
@@ -34,55 +37,54 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Commutication',
       theme: ThemeData(
+        useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
+          seedColor: Colors.deepPurple, 
           brightness: Brightness.dark,
         ),
-        useMaterial3: true,
       ),
-      home: const MainNavigationScreen(),
+      home: const MainScreen(),
     );
   }
 }
 
-class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
 
   @override
-  State<MainNavigationScreen> createState() => _MainNavigationScreenState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _currentIndex = 0;
-
-  final List<Widget> _screens = [
-    const PlayerScreen(),
-    const SettingsScreen(),
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
+  
+  static const List<Widget> _widgetOptions = <Widget>[
+    PlayerScreen(),
+    SettingsScreen(),
   ];
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
+      body: Center(
+        child: _widgetOptions.elementAt(_selectedIndex),
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (int index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: const [
+        onDestinationSelected: _onItemTapped,
+        selectedIndex: _selectedIndex,
+        destinations: const <Widget>[
           NavigationDestination(
-            icon: Icon(Icons.play_circle_outline),
-            selectedIcon: Icon(Icons.play_circle),
+            icon: Icon(Icons.play_arrow),
             label: 'Player',
           ),
           NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
+            icon: Icon(Icons.settings),
             label: 'Settings',
           ),
         ],
