@@ -1,1 +1,10 @@
 .env
+# Ignore typical temporary or local credentials
+*credentials.json
+*serviceAccount*.json
+firebase-adminsdk*.json
+
+# Specifically ignore other json that are likely config
+*.json
+# BUT re-include the strictly generated metadata
+!latest_metadata.json
