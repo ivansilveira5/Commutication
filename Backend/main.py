@@ -157,10 +157,6 @@ def generate_audio(client, text, filename):
         if not chunk.strip():
             continue
             
-        if i > 0:
-            print("Sleeping for 15 seconds to respect Gemini API free-tier TTS rate limits...")
-            time.sleep(15)
-            
         print(f"Processing chunk {i+1}/{len(chunks)}...")
         
         # Max retries with backoff to handle 429 Quota limits
