@@ -157,10 +157,24 @@ def generate_audio(client, text, filename):
                 speech_config=types.SpeechConfig(
                     voice_config=types.VoiceConfig(
                         multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
-                            speaker_to_voice_name={
-                                "Alex": "Puck",
-                                "Sam": "Kore"
-                            }
+                            speaker_voice_configs=[
+                                types.SpeakerVoiceConfig(
+                                    speaker="Alex",
+                                    voice_config=types.VoiceConfig(
+                                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                            voice_name="Puck"
+                                        )
+                                    )
+                                ),
+                                types.SpeakerVoiceConfig(
+                                    speaker="Sam",
+                                    voice_config=types.VoiceConfig(
+                                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                            voice_name="Kore"
+                                        )
+                                    )
+                                )
+                            ]
                         )
                     )
                 )
