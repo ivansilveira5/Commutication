@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 
 def init_firebase():
     creds_json = os.environ.get("FIREBASE_CREDENTIALS")
@@ -162,36 +162,52 @@ def generate_audio(client, text, filename):
             time.sleep(15)
             
         print(f"Processing chunk {i+1}/{len(chunks)}...")
-        # Generate PCM audio bytes utilizing the requested multi-speaker TTS model
-        response = client.models.generate_content(
-            model='gemini-2.5-flash-preview-tts',
-            contents=chunk,
-            config=types.GenerateContentConfig(
-                response_modalities=["AUDIO"],
-                speech_config=types.SpeechConfig(
-                    multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
-                        speaker_voice_configs=[
-                            types.SpeakerVoiceConfig(
-                                speaker="Alex",
-                                voice_config=types.VoiceConfig(
-                                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                        voice_name="Puck"
+        
+        # Max retries with backoff to handle 429 Quota limits
+        max_retries = 3
+        response = None
+        for attempt in range(max_retries):
+            try:
+                # Generate PCM audio bytes utilizing the requested multi-speaker TTS model
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash-preview-tts',
+                    contents=chunk,
+                    config=types.GenerateContentConfig(
+                        response_modalities=["AUDIO"],
+                        speech_config=types.SpeechConfig(
+                            multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                                speaker_voice_configs=[
+                                    types.SpeakerVoiceConfig(
+                                        speaker="Alex",
+                                        voice_config=types.VoiceConfig(
+                                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                                voice_name="Puck"
+                                            )
+                                        )
+                                    ),
+                                    types.SpeakerVoiceConfig(
+                                        speaker="Sam",
+                                        voice_config=types.VoiceConfig(
+                                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                                voice_name="Kore"
+                                            )
+                                        )
                                     )
-                                )
-                            ),
-                            types.SpeakerVoiceConfig(
-                                speaker="Sam",
-                                voice_config=types.VoiceConfig(
-                                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                        voice_name="Kore"
-                                    )
-                                )
+                                ]
                             )
-                        ]
+                        )
                     )
                 )
-            )
-        )
+                break # Success! Break out of the retry loop.
+            except errors.ClientError as e:
+                if e.status == 'RESOURCE_EXHAUSTED' or "429" in str(e):
+                    print(f"Rate limited by Google API (429). Taking a 65-second cool-down break before continuing... (Attempt {attempt+1}/{max_retries})")
+                    time.sleep(65)
+                else:
+                    raise e
+                    
+        if response is None:
+            raise RuntimeError(f"Failed to generate audio for chunk {i+1} after {max_retries} attempts due to persistent API errors.")
         
         pcm_data = None
         if getattr(response, 'candidates', None) and response.candidates[0].content.parts:
