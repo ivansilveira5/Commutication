@@ -57,7 +57,8 @@ def generate_script_and_metadata(client, topics):
         contents=prompt,
         config=types.GenerateContentConfig(
             tools=[{"google_search": {}}],
-            temperature=0.7
+            temperature=0.7,
+            response_mime_type="application/json"
         )
     )
     
