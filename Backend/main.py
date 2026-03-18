@@ -44,9 +44,10 @@ def generate_script_and_metadata(client, topics):
         f"Generate a highly conversational, engaging podcast transcript between two hosts named 'Alex' and 'Sam'. "
         f"The script MUST be a minimum of 2,000 words. Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
         f"They should banter, ask each other questions, and react to the news. "
-        f"Every single spoken line MUST begin with the speaker's name and a colon (e.g., 'Alex: [text]' or 'Sam: [text]'). Keep individual speeches relatively short to encourage constant back-and-forth. "
-        f"You MUST return ONLY valid raw JSON. Do not use markdown formatting, do not use backticks, and do not include any conversational text outside the JSON object. "
-        f"The JSON must have these keys: "
+        f"Every single spoken line MUST begin with the speaker's name and a colon (e.g., 'Alex: [text]' or 'Sam: [text]'). "
+        f"IMPORTANT: You MUST return ONLY valid raw JSON without markdown backticks. "
+        f"CRITICAL: To prevent JSON parsing errors, you MUST NOT use any double quotes (\") inside the 'script' string! Use single quotes (') instead! "
+        f"The JSON must have exactly these keys: "
         f"'headlines' (array of top 5 article titles), "
         f"'script' (the entire podcast transcript), and "
         f"'audio_filename' (a string formatted exactly as 'news_YYYY-MM-DD.wav' using today's date)."
@@ -57,8 +58,7 @@ def generate_script_and_metadata(client, topics):
         contents=prompt,
         config=types.GenerateContentConfig(
             tools=[{"google_search": {}}],
-            temperature=0.7,
-            response_mime_type="application/json"
+            temperature=0.7
         )
     )
     
