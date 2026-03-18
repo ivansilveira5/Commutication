@@ -145,12 +145,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
             stream: _positionDataStream,
             builder: (context, snapshot) {
               final positionData = snapshot.data;
-              return Slider(
-                value: positionData?.position.inMilliseconds.toDouble() ?? 0.0,
-                max: positionData?.duration.inMilliseconds.toDouble() ?? 100.0,
-                onChanged: (value) {
-                  _player.seek(Duration(milliseconds: value.round()));
-                },
+              final position = positionData?.position ?? Duration.zero;
+              final duration = positionData?.duration ?? Duration.zero;
+              
+              String formatDuration(Duration d) {
+                final hours = d.inHours;
+                final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+                final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+                if (hours > 0) return '$hours:$minutes:$seconds';
+                return '$minutes:$seconds';
+              }
+
+              final maxVal = duration.inMilliseconds.toDouble();
+              final currentVal = position.inMilliseconds.toDouble();
+              final safeMax = maxVal > 0.0 ? maxVal : 100.0;
+
+              return Column(
+                children: [
+                  Slider(
+                    value: currentVal.clamp(0.0, safeMax),
+                    max: safeMax,
+                    onChanged: (value) {
+                      _player.seek(Duration(milliseconds: value.round()));
+                    },
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(formatDuration(position), style: Theme.of(context).textTheme.bodySmall),
+                        Text(formatDuration(duration), style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                ],
               );
             },
           ),
