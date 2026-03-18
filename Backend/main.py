@@ -2,6 +2,7 @@ import os
 import json
 import base64
 import wave
+import time
 import glob
 from datetime import datetime, timedelta
 import firebase_admin
@@ -155,6 +156,10 @@ def generate_audio(client, text, filename):
     for i, chunk in enumerate(chunks):
         if not chunk.strip():
             continue
+            
+        if i > 0:
+            print("Sleeping for 15 seconds to respect Gemini API free-tier TTS rate limits...")
+            time.sleep(15)
             
         print(f"Processing chunk {i+1}/{len(chunks)}...")
         # Generate PCM audio bytes utilizing the requested multi-speaker TTS model
