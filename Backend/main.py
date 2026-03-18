@@ -4,6 +4,7 @@ import base64
 import wave
 import time
 import glob
+from pydub import AudioSegment
 from datetime import datetime, timedelta
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -36,12 +37,19 @@ def get_preferences():
                 
             duration = data.get('target_duration_minutes', 10.0)
             recommend_extra = data.get('recommend_extra', True)
-            return topics, int(duration), recommend_extra
+            podcast_vibe = data.get('podcast_vibe', 'Banter')
+            deep_dive_topic = data.get('deep_dive_topic')
+            
+            # Consume the deep dive flag so it only runs once
+            if deep_dive_topic:
+                doc_ref.update({'deep_dive_topic': firestore.DELETE_FIELD})
+                
+            return topics, int(duration), recommend_extra, podcast_vibe, deep_dive_topic
         else:
-            return ['Technology', 'World News', 'Science'], 10, True
+            return ['Technology', 'World News', 'Science'], 10, True, 'Banter', None
     except Exception as e:
         print(f"Error fetching preferences: {e}")
-        return ['Technology', 'World News', 'Science'], 10, True
+        return ['Technology', 'World News', 'Science'], 10, True, 'Banter', None
 
 def get_gemini_client():
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -49,13 +57,51 @@ def get_gemini_client():
         raise ValueError("GEMINI_API_KEY not set")
     return genai.Client(api_key=api_key)
 
-def generate_script_and_metadata(client, topics, duration_minutes, recommend_extra):
+def get_voice_configs_for_vibe(vibe):
+    if vibe == 'News Anchor':
+        return [
+            types.SpeakerVoiceConfig(
+                speaker="Marcus",
+                voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Charon"))
+            )
+        ]
+    elif vibe == 'Comedy':
+        return [
+            types.SpeakerVoiceConfig(
+                speaker="Zoe",
+                voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Aoede"))
+            ),
+            types.SpeakerVoiceConfig(
+                speaker="Liam",
+                voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Fenrir"))
+            )
+        ]
+    else: # Banter
+        return [
+            types.SpeakerVoiceConfig(
+                speaker="Alex",
+                voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Puck"))
+            ),
+            types.SpeakerVoiceConfig(
+                speaker="Sam",
+                voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Kore"))
+            )
+        ]
+
+def generate_script_and_metadata(client, topics, duration_minutes, recommend_extra, podcast_vibe, deep_dive_topic):
     # Average conversational speaking rate is ~150 words per minute
     target_words = duration_minutes * 150
     topics_str = ", ".join(topics) if isinstance(topics, list) else topics
     
+    if podcast_vibe == 'News Anchor':
+        vibe_prompt = f"Generate a serious, NPR-style solo anchor news broadcast hosted by 'Marcus'. Marcus should be professional, deeply analytical, and speak authoritative monologues. Every spoken line MUST begin with 'Marcus: '."
+    elif podcast_vibe == 'Comedy':
+        vibe_prompt = f"Generate a chaotic, highly energetic morning-radio comedy podcast transcript between two hosts named 'Zoe' and 'Liam'. They should be making jokes, interrupting each other with witty banter, and finding the humor in the news. Every spoken line MUST begin with the speaker's name (e.g. 'Zoe: ' or 'Liam: ')."
+    else:
+        vibe_prompt = f"Generate a highly conversational, engaging tech-banter podcast transcript between two hosts named 'Alex' and 'Sam'. They should banter, ask each other questions, and react naturally to the news. Every spoken line MUST begin with the speaker's name (e.g. 'Alex: ' or 'Sam: ')."
+        
     prompt = (
-        f"Generate a highly conversational, engaging podcast transcript between two hosts named 'Alex' and 'Sam'.\n\n"
+        f"{vibe_prompt}\n\n"
         f"CORE DIRECTIVES:\n"
         f"1. TIME LIMIT: The script MUST be exactly structured for a {duration_minutes}-minute audio playback. To achieve this, you MUST generate approximately {target_words} words.\n"
         f"2. PRIMARY INTERESTS: The user's requested topics are: {topics_str}.\n"
@@ -70,18 +116,21 @@ def generate_script_and_metadata(client, topics, duration_minutes, recommend_ext
         prompt += (
             f"4. STRICT TOPIC COMPLIANCE: The user has disabled 'Recommended Topics'. You MUST strictly confine your discussion ONLY to the user's explicitly stated interests. Do not introduce outside topics. Dive as deep as necessary into these specific topics to naturally expand and fill the {duration_minutes} minutes.\n"
         )
+        
+    if deep_dive_topic:
+        prompt += (
+            f"5. SPECIAL DEEP DIVE DIRECTIVE: The user explicitly requested a deep dive on '{deep_dive_topic}'. You MUST dedicate approximately 50% of the entire podcast duration to exhaustively exploring, analyzing, and unpacking all facets, implications, and expert opinions regarding this specific story!"
+        )
 
     prompt += (
         f"\nFORMATTING RULES:\n"
         f"Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
-        f"They should banter, ask each other questions, and react to the news. "
-        f"Every single spoken line MUST begin with the speaker's name and a colon (e.g., 'Alex: [text]' or 'Sam: [text]'). "
         f"IMPORTANT: You MUST return ONLY valid raw JSON. All JSON keys (e.g. \"headlines\", \"script\") and string array elements MUST be properly enclosed in double quotes (\"). "
         f"CRITICAL RULE FOR SCRIPT TEXT: Inside the massive text dialogue of the 'script' string, you MUST NEVER use any double quotes (\"). If you need to quote something spoken by the hosts, use single quotes (')! "
         f"The JSON must have exactly these keys: "
         f"\"headlines\" (array of top 5 article titles), "
         f"\"script\" (the entire podcast transcript, with absolutely no internal double quotes), and "
-        f"\"audio_filename\" (a string formatted exactly as 'news_YYYY-MM-DD.wav' using today's date)."
+        f"\"audio_filename\" (a string formatted exactly as 'news_YYYY-MM-DD.mp3' using today's date)."
     )
     
     response = client.models.generate_content(
@@ -175,8 +224,8 @@ def split_text_into_chunks(text, max_length=2500):
         
     return chunks
 
-def generate_audio(client, text, filename):
-    print(f"Generating audio for {filename}...")
+def generate_audio(client, text, filename, podcast_vibe):
+    print(f"Generating audio for {filename} (Vibe: {podcast_vibe})...")
     
     chunks = split_text_into_chunks(text)
     full_audio_bytes = bytearray()
@@ -202,24 +251,7 @@ def generate_audio(client, text, filename):
                         response_modalities=["AUDIO"],
                         speech_config=types.SpeechConfig(
                             multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
-                                speaker_voice_configs=[
-                                    types.SpeakerVoiceConfig(
-                                        speaker="Alex",
-                                        voice_config=types.VoiceConfig(
-                                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                                voice_name="Puck"
-                                            )
-                                        )
-                                    ),
-                                    types.SpeakerVoiceConfig(
-                                        speaker="Sam",
-                                        voice_config=types.VoiceConfig(
-                                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                                voice_name="Kore"
-                                            )
-                                        )
-                                    )
-                                ]
+                                speaker_voice_configs=get_voice_configs_for_vibe(podcast_vibe)
                             )
                         )
                     )
@@ -256,22 +288,30 @@ def generate_audio(client, text, filename):
     if not full_audio_bytes:
         raise RuntimeError("Failed to generate any audio data from the provided script.")
     
-    # Save the PCM buffer to a valid WAV file manually
     # Default outputs are mostly 24kHz, 1-channel, 16-bit PCM
-    with wave.open(filename, 'wb') as wav_file:
+    wav_filename = filename.replace('.mp3', '.wav')
+    with wave.open(wav_filename, 'wb') as wav_file:
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2) # 16-bit width corresponds to 2 bytes
         wav_file.setframerate(24000)
         wav_file.writeframes(full_audio_bytes)
         
-    print(f"Successfully saved {filename}")
+    print(f"Compressing {wav_filename} to {filename} using pydub (MP3 64k)...")
+    try:
+        audio = AudioSegment.from_wav(wav_filename)
+        audio.export(filename, format="mp3", bitrate="64k")
+        os.remove(wav_filename)
+        print(f"Successfully compressed and saved {filename}")
+    except Exception as e:
+        print(f"Compression failed: {e}. Falling back to keeping the wav.")
+        os.rename(wav_filename, filename)
 
 
 def cleanup_old_files():
     now = datetime.now()
     cutoff_date = now - timedelta(days=7)
-    wav_files = glob.glob("*.wav")
-    for f in wav_files:
+    audio_files = glob.glob("*.mp3") + glob.glob("*.wav")
+    for f in audio_files:
         try:
             mtime = datetime.fromtimestamp(os.path.getmtime(f))
             if mtime < cutoff_date:
@@ -285,14 +325,14 @@ def main():
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     init_firebase()
-    topics, duration_minutes, recommend_extra = get_preferences()
-    print(f"Preferences retrieved: {topics} ({duration_minutes} mins, Recommended: {recommend_extra})")
+    topics, duration_minutes, recommend_extra, podcast_vibe, deep_dive_topic = get_preferences()
+    print(f"Preferences retrieved: {topics} ({duration_minutes} mins, Recommended: {recommend_extra}, Vibe: {podcast_vibe}, Deep Dive: {deep_dive_topic})")
     
     client = get_gemini_client()
     
     # 1. AI Generation
     print("Generating script...")
-    podcast_data = generate_script_and_metadata(client, topics, duration_minutes, recommend_extra)
+    podcast_data = generate_script_and_metadata(client, topics, duration_minutes, recommend_extra, podcast_vibe, deep_dive_topic)
     print(f"Generated metadata topics array count limits met.")
     
     # 2. Audio Generation
@@ -300,7 +340,7 @@ def main():
     audio_filename = podcast_data.get("audio_filename")
     
     if script_text and audio_filename:
-        generate_audio(client, script_text, audio_filename)
+        generate_audio(client, script_text, audio_filename, podcast_vibe)
     else:
         print("Warning: Skipping audio generation due to missing script text or filename.")
     

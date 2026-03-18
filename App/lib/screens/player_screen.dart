@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:rxdart/rxdart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key});
@@ -34,9 +37,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final data = json.decode(response.body);
         setState(() {
           _metadata = data;
-          _isLoading = false;
+          // Keep loading true while the audio file is downloaded/cached
         });
-        _setupAudioPlayer(data['audio_filename']);
+        await _setupAudioPlayer(data['audio_filename']);
       } else {
         throw Exception('Failed to load metadata');
       }
@@ -49,21 +52,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _setupAudioPlayer(String? filename) async {
-    if (filename == null) return;
+    if (filename == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    
     try {
       final url = audioBaseUrl + filename;
+      final dir = await getApplicationDocumentsDirectory();
+      final localFile = File('${dir.path}/$filename');
+      
+      Uri audioUri;
+      if (await localFile.exists()) {
+        debugPrint("Playing from local cache: ${localFile.path}");
+        audioUri = Uri.file(localFile.path);
+      } else {
+        debugPrint("Downloading audio from network: $url");
+        final response = await http.get(Uri.parse(url));
+        if (response.statusCode == 200) {
+          await localFile.writeAsBytes(response.bodyBytes);
+          debugPrint("Cached locally at: ${localFile.path}");
+          audioUri = Uri.file(localFile.path);
+        } else {
+          debugPrint("Failed to download ($response.statusCode), falling back to streaming.");
+          audioUri = Uri.parse(url);
+        }
+      }
+      
       await _player.setAudioSource(
         AudioSource.uri(
-          Uri.parse(url),
+          audioUri,
           tag: MediaItem(
             id: '1',
             album: 'Commutication Daily',
-            title: 'Your Daily Podcast',
+            title: filename,
           ),
         ),
       );
+      if (mounted) setState(() => _isLoading = false);
     } catch (e) {
       debugPrint("Error loading audio: $e");
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -83,7 +112,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return Scaffold(body: Center(child: Text('Error: $_error')));
     }
 
-    final topics = _metadata?['topics'] ?? 'No topics';
+    final topicsRaw = _metadata?['topics'];
+    final topics = topicsRaw is List 
+        ? topicsRaw.map((e) => e.toString()).join(', ') 
+        : (topicsRaw?.toString() ?? 'No topics');
     final headlines = List<String>.from(_metadata?['headlines'] ?? []);
 
     return Scaffold(
@@ -121,6 +153,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 return ListTile(
                   leading: const Icon(Icons.article),
                   title: Text(headlines[index]),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.troubleshoot),
+                    tooltip: 'Deep Dive Tomorrow',
+                    onPressed: () async {
+                      try {
+                        await FirebaseFirestore.instance.doc('settings/user_preferences').set(
+                          {'deep_dive_topic': headlines[index]},
+                          SetOptions(merge: true)
+                        );
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Deep Dive scheduled for tomorrow!')),
+                          );
+                        }
+                      } catch (e) {
+                         debugPrint('Deep dive error: $e');
+                      }
+                    },
+                  ),
                 );
               },
             ),
@@ -237,6 +288,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onPressed: () {
                       final currentPosition = _player.position;
                       _player.seek(currentPosition + const Duration(seconds: 5));
+                    },
+                  ),
+                  StreamBuilder<double>(
+                    stream: _player.speedStream,
+                    builder: (context, speedSnapshot) {
+                      final currentSpeed = speedSnapshot.data ?? 1.0;
+                      return TextButton(
+                        onPressed: () {
+                          if (currentSpeed == 1.0) {
+                            _player.setSpeed(1.2);
+                          } else if (currentSpeed == 1.2) {
+                            _player.setSpeed(1.5);
+                          } else if (currentSpeed == 1.5) {
+                            _player.setSpeed(2.0);
+                          } else {
+                            _player.setSpeed(1.0);
+                          }
+                        },
+                        child: Text(
+                          "${currentSpeed}x",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                      );
                     },
                   ),
                 ],

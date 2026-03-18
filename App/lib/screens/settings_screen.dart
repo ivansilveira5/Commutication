@@ -16,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _topicsController = TextEditingController();
   List<String> _topics = [];
   bool _recommendExtra = true;
+  String _podcastVibe = 'Banter';
   TimeOfDay? _selectedTime;
   double _targetDuration = 10.0;
   bool _isLoading = false;
@@ -43,6 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }
             
             _recommendExtra = doc.data()?['recommend_extra'] ?? true;
+            _podcastVibe = doc.data()?['podcast_vibe'] ?? 'Banter';
             _targetDuration = (doc.data()?['target_duration_minutes'] ?? 10.0).toDouble();
           });
         }
@@ -58,6 +60,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await FirebaseFirestore.instance.doc('settings/user_preferences').set({
         'topics': _topics,
         'recommend_extra': _recommendExtra,
+        'podcast_vibe': _podcastVibe,
         'target_duration_minutes': _targetDuration,
       }, SetOptions(merge: true));
 
@@ -182,6 +185,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
               },
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
+            ),
+            const SizedBox(height: 24),
+            const Text('Podcast Vibe', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              value: _podcastVibe,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+              items: const [
+                DropdownMenuItem(value: 'Banter', child: Text('Alex & Sam (Tech Banter)')),
+                DropdownMenuItem(value: 'News Anchor', child: Text('Marcus (Serious News Desk)')),
+                DropdownMenuItem(value: 'Comedy', child: Text('Zoe & Liam (Morning Radio Comedy)')),
+              ],
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  setState(() {
+                    _podcastVibe = newValue;
+                  });
+                }
+              },
             ),
             const SizedBox(height: 24),
             Row(
