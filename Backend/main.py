@@ -84,31 +84,76 @@ def generate_script_and_metadata(client, topics):
         print(f"Failed to parse JSON string: {response.text}")
         raise ValueError("Failed to parse JSON from Gemini") from e
 
+def split_text_into_chunks(text, max_length=3000):
+    """Splits text into chunks, prioritizing paragraph breaks."""
+    paragraphs = text.split('\n\n')
+    chunks = []
+    current_chunk = ""
+
+    for p in paragraphs:
+        # If a single paragraph is larger than max_length, we have to split it by sentences
+        if len(p) > max_length:
+            sentences = p.replace('. ', '.[SPLIT]').replace('! ', '![SPLIT]').replace('? ', '?[SPLIT]').split('[SPLIT]')
+            for s in sentences:
+                if len(current_chunk) + len(s) + 1 <= max_length:
+                    current_chunk += s + " "
+                else:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                    current_chunk = s + " "
+        else:
+            if len(current_chunk) + len(p) + 2 <= max_length:
+                current_chunk += p + "\n\n"
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = p + "\n\n"
+                
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+        
+    return chunks
+
 def generate_audio(client, text, filename):
     print(f"Generating audio for {filename}...")
     
-    # Generate PCM audio bytes utilizing the requested TTS model
-    response = client.models.generate_content(
-        model='gemini-2.5-flash-preview-tts',
-        contents=text,
-        config=types.GenerateContentConfig(response_modalities=["AUDIO"])
-    )
+    chunks = split_text_into_chunks(text)
+    full_audio_bytes = bytearray()
     
-    pcm_data = None
-    if getattr(response, 'candidates', None) and response.candidates[0].content.parts:
-        for part in response.candidates[0].content.parts:
-            # Look for the internal inline_data portion
-            if hasattr(part, 'inline_data') and part.inline_data:
-                data = part.inline_data.data
-                # the content can be represented as bytes or base64-encoded string
-                if isinstance(data, str):
-                    pcm_data = base64.b64decode(data)
-                else:
-                    pcm_data = data
-                break
+    print(f"Divided script into {len(chunks)} chunks for TTS processing.")
     
-    if not pcm_data:
-        raise RuntimeError("Failed to extract PCM audio data from Gemini response")
+    for i, chunk in enumerate(chunks):
+        if not chunk.strip():
+            continue
+            
+        print(f"Processing chunk {i+1}/{len(chunks)}...")
+        # Generate PCM audio bytes utilizing the requested TTS model
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-preview-tts',
+            contents=chunk,
+            config=types.GenerateContentConfig(response_modalities=["AUDIO"])
+        )
+        
+        pcm_data = None
+        if getattr(response, 'candidates', None) and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                # Look for the internal inline_data portion
+                if hasattr(part, 'inline_data') and part.inline_data:
+                    data = part.inline_data.data
+                    # the content can be represented as bytes or base64-encoded string
+                    if isinstance(data, str):
+                        pcm_data = base64.b64decode(data)
+                    else:
+                        pcm_data = data
+                    break
+        
+        if pcm_data:
+            full_audio_bytes.extend(pcm_data)
+        else:
+            print(f"Warning: Failed to extract PCM audio data from Gemini response for chunk {i+1}")
+            
+    if not full_audio_bytes:
+        raise RuntimeError("Failed to generate any audio data from the provided script.")
     
     # Save the PCM buffer to a valid WAV file manually
     # Default outputs are mostly 24kHz, 1-channel, 16-bit PCM
@@ -116,7 +161,7 @@ def generate_audio(client, text, filename):
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2) # 16-bit width corresponds to 2 bytes
         wav_file.setframerate(24000)
-        wav_file.writeframes(pcm_data)
+        wav_file.writeframes(full_audio_bytes)
         
     print(f"Successfully saved {filename}")
 
