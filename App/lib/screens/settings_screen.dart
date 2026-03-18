@@ -124,7 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -216,7 +216,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               tileColor: Theme.of(context).colorScheme.surfaceContainerHighest,
             ),
-            const Spacer(),
+            const SizedBox(height: 32),
             ElevatedButton(
               onPressed: _isLoading ? null : _savePreferences,
               style: ElevatedButton.styleFrom(padding: const EdgeInsets.all(16)),
