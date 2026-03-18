@@ -41,10 +41,14 @@ def get_gemini_client():
 def generate_script_and_metadata(client, topics):
     prompt = (
         f"Search the live web for the following topics: {topics}. "
-        f"Generate a daily news podcast. You MUST return ONLY valid raw JSON. "
-        f"Do not use markdown formatting, do not use backticks, and do not include any conversational text outside the JSON object. "
-        f"The JSON must have these keys: 'headlines' (array of top 5 article titles), "
-        f"'script' (a conversational 10-minute podcast script detailing the news), and "
+        f"Generate a highly conversational, engaging podcast transcript between two hosts named 'Alex' and 'Sam'. "
+        f"The script MUST be a minimum of 2,000 words. Stop summarizing and instead dive deeply into the nuances, opinions, and implications of the news. "
+        f"They should banter, ask each other questions, and react to the news. "
+        f"Every single spoken line MUST begin with the speaker's name and a colon (e.g., 'Alex: [text]' or 'Sam: [text]'). Keep individual speeches relatively short to encourage constant back-and-forth. "
+        f"You MUST return ONLY valid raw JSON. Do not use markdown formatting, do not use backticks, and do not include any conversational text outside the JSON object. "
+        f"The JSON must have these keys: "
+        f"'headlines' (array of top 5 article titles), "
+        f"'script' (the entire podcast transcript), and "
         f"'audio_filename' (a string formatted exactly as 'news_YYYY-MM-DD.wav' using today's date)."
     )
     
@@ -84,17 +88,33 @@ def generate_script_and_metadata(client, topics):
         print(f"Failed to parse JSON string: {response.text}")
         raise ValueError("Failed to parse JSON from Gemini") from e
 
-def split_text_into_chunks(text, max_length=3000):
-    """Splits text into chunks, prioritizing paragraph breaks."""
-    paragraphs = text.split('\n\n')
+def split_text_into_chunks(text, max_length=2500):
+    """Splits text into chunks, prioritizing paragraph breaks (\n\n) to preserve 'Host: ' tags."""
+    paragraphs = text.replace('\r\n', '\n').split('\n\n')
     chunks = []
     current_chunk = ""
 
     for p in paragraphs:
-        # If a single paragraph is larger than max_length, we have to split it by sentences
+        p = p.strip()
+        if not p:
+            continue
+            
+        # If a single paragraph is larger than max_length, split it by sentences
         if len(p) > max_length:
+            # Carry over the host name to the split sentences to not break TTS context
+            host_prefix = ""
+            if ":" in p and len(p.split(":")[0]) < 20: 
+                host_prefix = p.split(":")[0] + ":"
+                
             sentences = p.replace('. ', '.[SPLIT]').replace('! ', '![SPLIT]').replace('? ', '?[SPLIT]').split('[SPLIT]')
             for s in sentences:
+                s = s.strip()
+                if not s: continue
+                
+                # Re-inject host prefix if it's not the first sentence
+                if host_prefix and not s.startswith(host_prefix) and ":" not in s[:20]:
+                    s = f"{host_prefix} {s}"
+                    
                 if len(current_chunk) + len(s) + 1 <= max_length:
                     current_chunk += s + " "
                 else:
@@ -127,11 +147,23 @@ def generate_audio(client, text, filename):
             continue
             
         print(f"Processing chunk {i+1}/{len(chunks)}...")
-        # Generate PCM audio bytes utilizing the requested TTS model
+        # Generate PCM audio bytes utilizing the requested multi-speaker TTS model
         response = client.models.generate_content(
             model='gemini-2.5-flash-preview-tts',
             contents=chunk,
-            config=types.GenerateContentConfig(response_modalities=["AUDIO"])
+            config=types.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
+                            speaker_to_voice_name={
+                                "Alex": "Puck",
+                                "Sam": "Kore"
+                            }
+                        )
+                    )
+                )
+            )
         )
         
         pcm_data = None
